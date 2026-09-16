@@ -32,7 +32,7 @@ int main() {
         double mz = getMagz();
 
         // 3. Calcul des angles de référence (Accéléromètre)
-        double roll_acc  = std::atan2(ay, std::hypot(ax, az));
+        double roll_acc  = std::atan2(ay, az);
         double pitch_acc = std::atan2(-ax, std::hypot(ay, az));
 
         // 4. Compensation d'inclinaison pour le magnétomètre (Tilt Compensation)

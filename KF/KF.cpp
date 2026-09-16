@@ -46,7 +46,7 @@ Eigen::Matrix<double,2,2> I = Eigen::Matrix2d::Identity();
 //calcul du gain de kalman;
 
 std::random_device rd; //seed random
-std::mt19937 generator(rd()) // creation du generateur qui prend une seed random rd
+std::mt19937 generateur(rd()); // creation du generateur qui prend une seed random rd
 
 double vraie_vitesse = -1750;
 double vraie_position = 18000;
