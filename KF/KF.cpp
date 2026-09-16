@@ -1,83 +1,92 @@
-#include <iostream>
-#include <vector>
-#include <random>
 #include <Eigen/Dense>
+#include <iostream>
+#include <random> // Pour le bruit aléatoire
+#include <cmath>  // Pour std::sqrt()
 
+void KalmanFilter(double dt){
 
-int main(){
-float dt = 0.1;
-Eigen::Matrix2d F;
-F << 1, dt, 
-     0, 1;
+Eigen::Matrix<double,2,2> Fd;
 
-Eigen::Matrix2d I = Eigen::Matrix2d::Identity();
+Fd << 1,dt,0,1;
 
-Eigen::Matrix2d Q;
-Q << 0.1, 0.0,
-     0.0, 1.0;
+Eigen::Matrix<double,2,1> x;
+x << 18000, -1800;
+
+Eigen::Matrix<double,2,1> Gd;
+Gd << 0.5*dt*dt, dt;
+
+Eigen::Matrix<double,1,1> u;
+u << -9.81;
+
+Eigen::Matrix<double,1,2> H;
+H << 1,0;
+
+Eigen::Matrix<double,1,1> mesure;
+mesure << 0;
+
+Eigen::Matrix<double,2,2> P;
+P << 1e4,0,0,1e4;
+
+Eigen::Matrix<double,2,1> Kg;
+Kg << 0,0;
+
+double gamma = 1;
+
+Eigen::Matrix<double,2,2> Qd;
+Qd << gamma*dt*dt, gamma *dt, gamma * dt, gamma * 1;
 
 Eigen::Matrix<double,1,1> R;
 R << 300;
 
-Eigen::Matrix2d P;
-P << 1e9, 0, 0, 1e9;
-
-Eigen::Matrix<double,1,2> H;
-H << 1.0, 0;
-
-Eigen::Vector2d G;
-G << 0.5 * dt * dt, 
-     dt;
-
-Eigen::Matrix<double, 1, 1> input_vector;
-input_vector << 0.0; // u = 0 si aucune accélération commandée
+Eigen::Matrix<double,2,2> I = Eigen::Matrix2d::Identity();
 
 
-Eigen::Vector2d state_vector;
-state_vector << 0, 0;
+//initialisation de x0 et po déja faite plus haut
+
+//calcul du gain de kalman;
+
+std::random_device rd; //seed random
+std::mt19937 generator(rd()) // creation du generateur qui prend une seed random rd
+
+double vraie_vitesse = -1750;
+double vraie_position = 18000;
+
+std::normal_distribution<double> distribution_bruit(0.0, std::sqrt(300));
+std::normal_distribution<double> dist_bruit_vent(0.0, std::sqrt(20));
+
+for(int i = 0; i < 20; ++i) { 
+
+double erreur_capteur = distribution_bruit(generateur);
+double rafale_vent = dist_bruit_vent(generateur);
+
+vraie_position = -0.5*9.81*dt*dt + vraie_vitesse*dt + vraie_position;
+vraie_vitesse = vraie_vitesse - 9.81*dt + rafale_vent;
+
+mesure << vraie_position + erreur_capteur;
+
+Kg = P*H.transpose()*(( H*P*H.transpose() + R).inverse());
+
+//Mise a jour de la covariance P et du vecteur d'état;
+
+P = (I-Kg*H)*P;
+x = x + Kg*(mesure-H*x);
 
 
-Eigen::Matrix<double,1,1> mesure_vector;
+std::cout << "estimation de mesure de position: " << x(0) << " vs estimation de vraie mesure de position: " << vraie_position << std::endl;
+std::cout << "estimation de mesure de vitesse" << x(1) << " vs estimation de vraie mesure de vitesse: " << vraie_vitesse << std::endl;
 
-int cycle = 0;
+//Extrapolation de P et x;
 
-// En dehors de la boucle (initialisation du générateur)
-std::default_random_engine generator;
-std::normal_distribution<double> noise(0.0, std::sqrt(300.0)); // sigma = sqrt(R)
-
-
-
-while(cycle<10){
-
-    cycle++;
-
-    double position_reelle = 5.0 * cycle;
-
-    mesure_vector << position_reelle + noise(generator);
-
-    Eigen::Matrix<double,1,1> S = H * P * H.transpose() + R;
-
-    Eigen::Vector2d kalman_gain = P* H.transpose() * S.inverse();
-
-    //Mise à jour de la mesure
-    Eigen::Matrix<double,1,1> innovation = mesure_vector - (H*state_vector);
-    state_vector = state_vector + kalman_gain * innovation(0,0);
-    P = (I - kalman_gain*H)*P;
-
-    //extrapolation du pas suivant
-    state_vector = F*state_vector + G*input_vector;
-    P = F*P*F.transpose() + Q;
-
-
-    std::cout << "numéro de cycle: " << cycle;
-
-    std::cout << "position_estimée: " <<state_vector[0];
-    std::cout << "vitesse_estimée: " <<state_vector[1];
-
-
-
+x = Fd*x + Gd*u;
+P = Fd*P*(Fd.transpose()) + Qd;
 
 }
+}
 
+int main(){
+
+KalmanFilter(0.5);
 return 0;
+
+
 }
