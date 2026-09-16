@@ -148,3 +148,78 @@ Règle de dimensionnement : toute matrice ou vecteur est déclaré via `Eigen::M
    $$(n \times n)(n \times 1) + (n \times p)(p \times 1) \implies \mathbf{n \times 1}$$
 2. **Prédiction de la covariance :** $P = F_d P F_d^T + Q_d$  
    $$(n \times n)(n \times n)(n \times n) + (n \times n) \implies \mathbf{n \times n}$$
+
+---
+
+### 8. Distinction fondamentale : Vrai Bruit Physique vs Matrices de Bruit ($Q$ et $R$)
+
+Lorsqu'on simule et code un filtre de Kalman, une erreur classique consiste à confondre les perturbations de l'environnement avec les réglages mathématiques de l'algorithme. Il faut impérativement séparer votre programme en **deux mondes hermétiques**.
+
+#### A. Le Monde Réel (La Vérité Terrain et la Simulation)
+
+C'est la physique réelle de votre système. Le vrai monde est chaotique et les capteurs sont imparfaits. Ces bruits sont **des événements aléatoires générés à chaque instant $t$** (ex: via `std::normal_distribution`).
+
+* **Le vrai bruit de processus ($w_k$) :** C'est une perturbation physique réelle (bourrasque de vent, frottement imprévisible, nid-de-poule).
+* *Où s'applique-t-il ?* Uniquement sur la cinématique réelle du système, généralement **sur la dérivée la plus élevée** (la vitesse ou l'accélération). La physique (l'intégration) se charge ensuite de faire ruisseler cette erreur sur la position.
+
+
+* **Le vrai bruit de mesure ($v_k$) :** C'est le tremblement électronique ou l'imprécision physique instantanée du capteur.
+* *Où s'applique-t-il ?* Directement sur la grandeur physique mesurée, **avant** d'être envoyée au filtre.
+* *Code :* `mesure = vraie_position + erreur_aleatoire`
+
+
+#### B. Le Cerveau (L'algorithme de Kalman)
+
+Le filtre est un observateur "aveugle". Il reçoit une mesure polluée, mais **il ignore quelle est la part de vérité et la part de bruit**. Les matrices $Q$ et $R$ ne sont pas des nombres aléatoires, mais des **paramètres de réglage statiques** qui dictent au filtre son niveau de méfiance.
+
+* **La matrice $Q$ (Méfiance envers le modèle) :** Elle dit au filtre : *"Attention, les équations physiques parfaites ($F$ et $G$) que j'ai programmées ne reflètent pas la réalité à 100%. Garde toujours une part de doute sur tes prédictions, car il peut y avoir du vent."*
+* *Règle :* Si on augmente $Q$, le filtre a moins confiance en sa prédiction mathématique et va chercher à "croire" davantage le capteur.
+
+
+* **La matrice $R$ (Méfiance envers le capteur) :** Elle dit au filtre : *"Attention, le capteur que tu utilises a une variance de $\sigma^2$. Tiens-en compte pour ne pas réagir excessivement au moindre petit pic de mesure."*
+* *Règle :* Si on augmente $R$, le filtre fait moins confiance au capteur et va avoir tendance à lisser massivement la trajectoire en se reposant sur sa prédiction mathématique.
+
+
+#### C. Le rôle de l'Ingénieur : Le "Tuning"
+
+Toute la magie du filtre de Kalman réside dans le calcul du **Gain de Kalman ($K$)**. L'algorithme calcule $K$ en effectuant en permanence le ratio entre l'incertitude du modèle ($P$, nourrie par $Q$) et l'incertitude du capteur ($R$).
+Trouver le bon équilibre entre les valeurs que l'on met dans $Q$ et dans $R$ s'appelle le **tuning** du filtre.
+
+---
+### 9. Le "Tuning" d'un Filtre de Kalman (Régler $Q$ et $R$)
+
+Bien que les équations du filtre de Kalman soient mathématiquement parfaites, son comportement réel dépend entièrement du choix des matrices $Q$ et $R$. Ce processus itératif s'appelle le "tuning". L'objectif est de trouver le curseur idéal entre la réactivité (suivre la réalité) et la fluidité (lisser le bruit).
+
+#### A. Fixer $R$ : La réalité du matériel (Le plus facile)
+
+La matrice de covariance du bruit de mesure $R$ ne se devine pas, elle se déduit physiquement des capteurs.
+
+* **Méthode Datasheet :** Le fabricant du capteur fournit souvent une précision ou un écart-type $\sigma$. (Ex: GPS précis à $\pm 3$ mètres $\implies R = 3^2 = 9$).
+* **Méthode Expérimentale :** Placez le capteur en position statique, enregistrez 1000 mesures, et calculez mathématiquement la variance de cet échantillon.
+* *Règle :* On touche très peu à $R$ une fois qu'elle est fixée, car elle représente une vérité physique mesurable.
+
+#### B. Fixer $Q$ : Modéliser l'inconnu (Le plus difficile)
+
+La matrice $Q$ représente ce que votre modèle cinématique ignore (vent, vibrations, nids-de-poule, action imprévisible d'un pilote). C'est ici que réside le véritable "tuning".
+
+* **L'approche par la variance d'accélération ($q_c$) :** On estime l'accélération parasite maximale que le système peut subir entre deux instants. Par exemple, si une voiture peut au maximum subir un à-coup de $2 \text{ m/s}^2$ à cause d'une bosse, on utilise cette valeur pour construire $q_c$ (la densité spectrale), qui va ensuite remplir $Q_d$ via l'intégrale de Van Loan.
+* *Règle :* C'est ce paramètre $q_c$ (ou `gamma` dans votre code) que l'ingénieur va augmenter ou diminuer itérativement lors des essais.
+
+#### C. La Règle d'or : Tout est une question de Ratio ($Q / R$)
+
+Le comportement du filtre ne dépend pas tant des valeurs absolues de $Q$ et $R$, mais du rapport de force entre les deux.
+
+| Scénario | Comportement du Filtre | Conséquence |
+| --- | --- | --- |
+| **$Q$ grand $\gg R$** | **Fait confiance au Capteur** | Le filtre est très **réactif**. Il capte les vrais mouvements brusques instantanément, mais laisse passer beaucoup de bruit (courbe hachée). |
+| **$R$ grand $\gg Q$** | **Fait confiance au Modèle** | Le filtre est très **lisse**. Il efface parfaitement le bruit, mais introduit un **retard (lag)** important. Si l'objet tourne brutalement, l'estimation mettra du temps à rattraper la réalité. |
+
+#### D. Comment vérifier mathématiquement son réglage ? (L'Innovation)
+
+Dans l'industrie, on ne règle pas un filtre uniquement "à l'œil". On analyse mathématiquement **l'innovation** (ou résidu) : $\tilde{y} = y - H \hat{x}$.
+L'innovation représente la surprise du filtre à chaque nouvelle mesure.
+
+* **Filtre parfaitement réglé :** La courbe de l'innovation doit ressembler à un bruit blanc parfait. Elle doit être centrée sur zéro, sans aucune tendance, ni cycle, ni vague.
+* **Filtre mal réglé :** Si l'innovation est biaisée (reste au-dessus de zéro) ou forme des vagues lors de manœuvres, cela prouve que le filtre est "trop confiant" en son modèle ($Q$ trop faible) et n'arrive pas à suivre la vraie dynamique du système.
+
+---
